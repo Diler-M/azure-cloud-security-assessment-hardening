@@ -26,35 +26,13 @@ resource "azurerm_subnet" "services" {
   address_prefixes     = ["10.0.2.0/24"]
 }
 
+# Explicit allow all inbound and outbound rules were removed
+# Further egress restrictions require more context in order to avoid breaking cluster operations
 resource "azurerm_network_security_group" "aks" {
   name                = "${var.cluster_name}-nsg"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = var.tags
-
-  security_rule {
-    name                       = "AllowAllInbound"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
-
-  security_rule {
-    name                       = "AllowAllOutbound"
-    priority                   = 110
-    direction                  = "Outbound"
-    access                     = "Allow"
-    protocol                   = "*"
-    source_port_range          = "*"
-    destination_port_range     = "*"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
-  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "aks" {
@@ -79,11 +57,17 @@ resource "azurerm_storage_account" "main" {
   account_replication_type = "LRS"
   tags                     = var.tags
 
-  allow_nested_items_to_be_public = true
-  public_network_access_enabled   = true
-  https_traffic_only_enabled      = false
-  min_tls_version                 = "TLS1_0"
-  shared_access_key_enabled       = true
+  allow_nested_items_to_be_public = false
+
+  # Public network access remains enabled as no private endpoint or approved network path is defined elsewhere
+  public_network_access_enabled = true
+
+
+  https_traffic_only_enabled = true
+  min_tls_version            = "TLS1_2"
+
+  # Shared Key access stays enabled until entities that need access are migrated to Entra ID or managed identity authentication
+  shared_access_key_enabled = true
 
   blob_properties {
     delete_retention_policy {
@@ -95,7 +79,7 @@ resource "azurerm_storage_account" "main" {
 resource "azurerm_storage_container" "logs" {
   name                  = "cluster-logs"
   storage_account_id    = azurerm_storage_account.main.id
-  container_access_type = "blob"
+  container_access_type = "private"
 }
 
 resource "azurerm_key_vault" "main" {
@@ -107,8 +91,8 @@ resource "azurerm_key_vault" "main" {
   tags                = var.tags
 
   rbac_authorization_enabled = false
-  purge_protection_enabled    = false
-  soft_delete_retention_days  = 7
+  purge_protection_enabled   = true
+  soft_delete_retention_days = 7
 
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
@@ -146,20 +130,15 @@ resource "azurerm_key_vault" "main" {
   }
 }
 
-resource "azurerm_key_vault_secret" "admin_password" {
-  name         = "aks-admin-password"
-  value        = var.admin_password
-  key_vault_id = azurerm_key_vault.main.id
-}
-
 resource "azurerm_container_registry" "main" {
   name                = replace("${var.cluster_name}acr", "-", "")
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"
-  admin_enabled       = true
+  admin_enabled       = false
   tags                = var.tags
 
+  # Public network access remains enabled as no private endpoint or approved network path is defined elsewhere
   public_network_access_enabled = true
 }
 
@@ -185,15 +164,23 @@ resource "azurerm_kubernetes_cluster" "main" {
     type = "SystemAssigned"
   }
 
+  oms_agent {
+    log_analytics_workspace_id      = azurerm_log_analytics_workspace.main.id
+    msi_auth_for_monitoring_enabled = true
+  }
+
   oidc_issuer_enabled       = false
   workload_identity_enabled = false
-  local_account_disabled    = false
+
+  # Local accounts remain enabled as Entra ID integration is not configured in the supplied architecture.
+  # Disabling it could remove the only confirmed access path to the cluster.
+  local_account_disabled = false
 
   linux_profile {
     admin_username = var.admin_username
 
     ssh_key {
-      key_data = tls_private_key.aks.public_key_openssh
+      key_data = var.ssh_public_key
     }
   }
 
@@ -209,7 +196,7 @@ resource "azurerm_kubernetes_cluster" "main" {
     authorized_ip_ranges = []
   }
 
-  role_based_access_control_enabled = false
+  role_based_access_control_enabled = true
 
   key_vault_secrets_provider {
     secret_rotation_enabled = false
@@ -218,7 +205,7 @@ resource "azurerm_kubernetes_cluster" "main" {
 
 resource "azurerm_role_assignment" "aks_acr_pull" {
   scope                = azurerm_container_registry.main.id
-  role_definition_name = "Contributor"
+  role_definition_name = "AcrPull"
   principal_id         = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
 }
 
@@ -226,11 +213,6 @@ resource "azurerm_role_assignment" "aks_storage" {
   scope                = azurerm_storage_account.main.id
   role_definition_name = "Storage Account Key Operator Service Role"
   principal_id         = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
-}
-
-resource "tls_private_key" "aks" {
-  algorithm = "RSA"
-  rsa_bits  = 2048
 }
 
 data "azurerm_client_config" "current" {}

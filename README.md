@@ -73,6 +73,8 @@ This allows Terraform quality and security checks to be performed without deploy
 ```text
 azure-cloud-security-assessment-hardening/
 ├── README.md
+├── SOLUTION.md
+├── azure-pipelines.yml
 ├── .gitignore
 └── terraform/
     ├── backend.tf

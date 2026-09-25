@@ -1,0 +1,89 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  terraformVersion: '1.15.8'
+  terraformDirectory: '$(System.DefaultWorkingDirectory)/terraform'
+  trufflehogVersion: 'v3.95.9'
+
+stages:
+  - stage: Validate
+    displayName: Offline Terraform validation
+
+    jobs:
+      - job: TerraformValidation
+        displayName: Terraform static checks
+
+        steps:
+          - checkout: self
+            clean: true
+            fetchDepth: 1
+
+          - bash: |
+              set -euo pipefail
+
+              curl -fsSLo terraform.zip \
+                "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
+
+              unzip -q terraform.zip
+              sudo install terraform /usr/local/bin/terraform
+
+              terraform version
+            displayName: Install Terraform
+            env:
+              TERRAFORM_VERSION: $(terraformVersion)
+
+          - bash: terraform fmt -check -recursive
+            workingDirectory: $(terraformDirectory)
+            displayName: Terraform format check
+
+          - bash: terraform init -backend=false -input=false
+            workingDirectory: $(terraformDirectory)
+            displayName: Terraform init without backend
+
+          - bash: terraform validate -no-color
+            workingDirectory: $(terraformDirectory)
+            displayName: Terraform validate
+
+          - bash: |
+              set -euo pipefail
+
+              python3 -m venv .checkov-venv
+              .checkov-venv/bin/python -m pip install --upgrade pip
+              .checkov-venv/bin/python -m pip install "checkov==3.3.8"
+
+              .checkov-venv/bin/checkov \
+                -d . \
+                --framework terraform \
+                --compact \
+                --check CKV_AZURE_4,CKV_AZURE_5,CKV_AZURE_9,CKV_AZURE_10,CKV_AZURE_34,CKV_AZURE_44,CKV_AZURE_77,CKV_AZURE_137,CKV_AZURE_160,CKV_AZURE_190,CKV2_AZURE_8,CKV2_AZURE_47
+            workingDirectory: $(terraformDirectory)
+            displayName: Checkov security gate
+
+          - bash: |
+              set -euo pipefail
+
+              mkdir -p "$HOME/.local/bin"
+
+              curl -sSfL \
+                https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh |
+                sh -s -- -b "$HOME/.local/bin" "${TRUFFLEHOG_VERSION}"
+
+              "$HOME/.local/bin/trufflehog" filesystem . \
+                --results=verified,unknown \
+                --fail \
+                --no-update
+            workingDirectory: $(System.DefaultWorkingDirectory)
+            displayName: TruffleHog secret scan
+            env:
+              TRUFFLEHOG_VERSION: $(trufflehogVersion)
