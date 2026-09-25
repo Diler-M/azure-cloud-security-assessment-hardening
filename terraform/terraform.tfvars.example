@@ -1,0 +1,18 @@
+environment         = "dev"
+location            = "uksouth"
+resource_group_name = "rg-security-aks-dev"
+cluster_name        = "aks-security-dev"
+node_count          = 2
+node_vm_size        = "Standard_D2s_v3"
+admin_username      = "azureuser"
+
+# Do not commit real secrets. Use placeholder values for local validation only.
+admin_password      = "ChangeMe123!"
+acr_admin_password  = "AcrAdminPass123!"
+storage_account_key = "placeholder-storage-key"
+
+tags = {
+  project     = "security-platform"
+  environment = "dev"
+  managed_by  = "terraform"
+}
