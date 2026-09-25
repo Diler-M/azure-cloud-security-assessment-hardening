@@ -40,27 +40,6 @@ variable "admin_username" {
   default     = "azureuser"
 }
 
-variable "admin_password" {
-  description = "Admin password for the Linux node pool."
-  type        = string
-  sensitive   = true
-  default     = "ChangeMe123!"
-}
-
-variable "acr_admin_password" {
-  description = "Admin password for the container registry."
-  type        = string
-  sensitive   = true
-  default     = "AcrAdminPass123!"
-}
-
-variable "storage_account_key" {
-  description = "Primary access key for the storage account."
-  type        = string
-  sensitive   = true
-  default     = "placeholder-storage-key"
-}
-
 variable "tags" {
   description = "Tags applied to all resources."
   type        = map(string)
@@ -69,4 +48,9 @@ variable "tags" {
     environment = "dev"
     managed_by  = "terraform"
   }
+}
+
+variable "ssh_public_key" {
+  description = "Existing SSH public key used for AKS Linux node administration."
+  type        = string
 }
