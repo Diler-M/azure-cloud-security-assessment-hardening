@@ -46,7 +46,7 @@ I focused on changes that addressed immediate security risks without requiring a
 
 I removed outputs containing the raw AKS kubeconfig, passwords, the storage account access key and the SSH private key.
 
-These values could be displayed in local terminals or CI/CD logs and would also remain stored in Terraform state. Marking them as sensitive would reduce accidental display, but the values would still remain in Terraform state, so unnecessary credential outputs were removed entirely, so unnecessary credential outputs were removed entirely.
+These values could be displayed in local terminals or CI/CD logs and would also remain stored in Terraform state. Marking them as sensitive would reduce accidental display, but the values would still remain in Terraform state, so unnecessary credential outputs were removed entirely.
 
 ## Hardcoded and Unused Credentials
 
